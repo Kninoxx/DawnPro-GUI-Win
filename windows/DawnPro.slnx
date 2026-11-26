@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="DawnPro.Core/DawnPro.Core.csproj" />
+  <Project Path="DawnPro.Windows/DawnPro.Windows.csproj" />
+  <Project Path="DawnPro.Tests/DawnPro.Tests.csproj" />
+</Solution>

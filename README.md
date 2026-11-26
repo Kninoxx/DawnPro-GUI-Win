@@ -16,13 +16,38 @@ DawnPro-GUI is a tool used to control the Moondrop Dawn Pro AMP/DAC.
 - Adjust the volume
 - Fully configurable through JSON configuration file
 
-## Requirements
+## Windows
+
+This fork includes a native C# and WPF controller for the original Moondrop Dawn Pro (USB `2FC6:F06A`). It uses the HID driver built into Windows alongside the audio driver. The initial package targets Windows x64. Dawn Pro 2 uses a different protocol.
+
+Run these commands from the repository root with the .NET 10 SDK installed.
+
+```powershell
+dotnet build windows/DawnPro.slnx -c Release
+dotnet test windows/DawnPro.Tests -c Release --no-build
+dotnet run --project windows/DawnPro.Windows -c Release --no-build
+```
+
+- **Refresh** reads the connected DAC. Use it after plugging in or reconnecting the device. Connect one Dawn Pro at a time.
+- **Apply to DAC** sends changed settings and checks the device's reply. If an operation fails, refresh to see which settings the device accepted.
+- **Save locally** writes the selected values to `%LOCALAPPDATA%\DawnPro-GUI\config.json`. **Load saved** and **Import JSON…** put values into the controls. They take effect on the DAC when you select **Apply to DAC**. Import accepts the `default_settings` section of the existing Linux config.
+- **DAC volume** is the device's 0–60-step hardware attenuator. Windows also has its own audio volume.
+
+Use `dotnet publish` to create a self-contained Windows x64 build.
+
+```powershell
+dotnet publish windows/DawnPro.Windows -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:DebugType=embedded
+```
+
+Run `DawnPro.Windows.exe` from `windows/DawnPro.Windows/bin/Release/net10.0-windows/win-x64/publish/`. The automated tests use fake HID reports. Windows launch and behavior on a physical DAC require a manual check.
+
+## Linux requirements
 
 - Python 3.7 or higher
 - `usb` module
 - `PyGObject`
 
-## Installation
+## Linux installation
 
 ### From AUR (Arch Linux)
 
@@ -183,7 +208,7 @@ To run the tool, execute the following command:
 python main.py
 ```
 
-## Testing
+## Linux testing
 
 The project includes a comprehensive test suite with hardware emulation, allowing tests to run without physical hardware.
 
@@ -247,15 +272,9 @@ Run the build verification script to check:
 python scripts/build_check.py
 ```
 
-### CI/CD
-
-Tests run automatically on every push and pull request via GitHub Actions. The CI pipeline:
-- Tests on Python 3.7, 3.8, 3.9, 3.10, 3.11
-- Runs linting (black, flake8, pylint)
-- Generates coverage reports
-- Blocks merges on test failures
-
 ## Acknowledgments
 Inspired by:
 
 "mdrop" by frahz: https://github.com/frahz/mdrop/
+
+The Windows HID report layout and reply handling were cross-checked against [Abdul Mateen's Moondrop Dawn Pro controller](https://github.com/RetR0-hex/moondrop-dawn-pro-gui) and the [Windows hardware results in Glacier EQ](https://github.com/Bukutsu/glacier-eq/issues/46#issuecomment-6171187452).
