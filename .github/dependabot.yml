@@ -1,8 +1,8 @@
 version: 2
 updates:
-  # Python 
-  - package-ecosystem: "pip"
-    directory: "/"
+  # .NET test dependencies
+  - package-ecosystem: "nuget"
+    directory: "/windows/DawnPro.Tests"
     schedule:
       interval: "daily"
     open-pull-requests-limit: 10
