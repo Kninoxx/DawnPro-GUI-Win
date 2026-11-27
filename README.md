@@ -27,7 +27,13 @@ dotnet run --project windows/DawnPro.Windows -c Release --no-build
 
 The automated tests use fake HID reports.
 
-## Publish a portable executable
+## Download a portable build
+
+Download `DawnPro-GUI-Win-x64-<commit>.zip` from the **Artifacts** section of a successful Windows build. Extract it and run `DawnPro.Windows.exe`. The ZIP includes the .NET runtime and its license notices. [Windows builds on GitHub Actions](https://github.com/Kninoxx/DawnPro-GUI-Win/actions/workflows/windows.yml)
+
+For a GitHub release, use the ZIP from the successful `main` run for the commit you plan to tag. Test that download on Windows with your Dawn Pro, then attach the same ZIP to the draft release.
+
+## Publish a portable executable locally
 
 ```powershell
 dotnet publish windows/DawnPro.Windows -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:DebugType=embedded
