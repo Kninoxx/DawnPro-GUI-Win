@@ -2,6 +2,8 @@
 
 A Windows desktop controller for the original Moondrop Dawn Pro DAC/amp (USB `2FC6:F06A`). It is built with C# and WPF and uses the HID driver built into Windows alongside the audio driver. The packaged app targets Windows x64.
 
+![DawnPro-GUI-Win in dark mode showing the connected DAC and its controls](docs/images/dawnpro-windows.png)
+
 ## Controls
 
 - **DAC volume** uses the device's 0–60-step hardware volume table. Windows also has its own audio volume.
