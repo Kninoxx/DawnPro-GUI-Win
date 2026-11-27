@@ -27,3 +27,37 @@ jobs:
           dotnet publish windows/DawnPro.Windows -c Release -r win-x64 --self-contained true
           -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
           -p:EnableCompressionInSingleFile=true -p:DebugType=embedded
+      - name: Package portable Windows ZIP
+        id: package
+        shell: pwsh
+        run: |
+          $project = 'windows/DawnPro.Windows'
+          $build = "$project/bin/Release/net10.0-windows/win-x64"
+          $config = Get-Content "$build/DawnPro.Windows.runtimeconfig.json" -Raw | ConvertFrom-Json
+          $frameworks = $config.runtimeOptions.includedFrameworks
+          $coreVersion = ($frameworks | Where-Object name -eq 'Microsoft.NETCore.App').version
+          $desktopVersion = ($frameworks | Where-Object name -eq 'Microsoft.WindowsDesktop.App').version
+
+          $assets = Get-Content "$project/obj/project.assets.json" -Raw | ConvertFrom-Json
+          $packages = $assets.project.restore.packagesPath
+          $corePack = Join-Path $packages "microsoft.netcore.app.runtime.win-x64/$coreVersion"
+          $desktopPack = Join-Path $packages "microsoft.windowsdesktop.app.runtime.win-x64/$desktopVersion"
+
+          $staging = Join-Path $env:RUNNER_TEMP 'dawnpro-package'
+          $licenses = Join-Path $staging 'licenses'
+          New-Item -ItemType Directory -Path $licenses -Force | Out-Null
+          Copy-Item -LiteralPath "$build/publish/DawnPro.Windows.exe", 'LICENSE' -Destination $staging
+          Copy-Item -LiteralPath "$corePack/LICENSE.TXT" -Destination "$licenses/dotnet-LICENSE.txt"
+          Copy-Item -LiteralPath "$corePack/THIRD-PARTY-NOTICES.TXT" -Destination "$licenses/dotnet-THIRD-PARTY-NOTICES.txt"
+          Copy-Item -LiteralPath "$desktopPack/LICENSE" -Destination "$licenses/windowsdesktop-LICENSE.txt"
+
+          $revision = $env:GITHUB_SHA.Substring(0, 7)
+          $zip = Join-Path $env:RUNNER_TEMP "DawnPro-GUI-Win-x64-$revision.zip"
+          Compress-Archive -Path "$staging/*" -DestinationPath $zip -CompressionLevel Fastest
+          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "zip=$zip"
+      - name: Upload portable Windows ZIP
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ steps.package.outputs.zip }}
+          archive: false
+          if-no-files-found: error
