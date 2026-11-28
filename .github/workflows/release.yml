@@ -1,0 +1,138 @@
+name: Publish Windows release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version tag, for example v1.1.0 or v1.1.0-rc.1
+        required: true
+        type: string
+      build_run_id:
+        description: Run ID from the Windows build on main whose ZIP you tested
+        required: true
+        type: string
+      release_notes:
+        description: Markdown release notes. Leave blank to generate them.
+        type: string
+      prerelease:
+        description: Mark the release as a pre-release
+        type: boolean
+        default: false
+      draft:
+        description: Save the release as a draft for review
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: windows-release-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Verify build and create release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+          RELEASE_NOTES: ${{ inputs.release_notes }}
+          PRERELEASE: ${{ inputs.prerelease }}
+          DRAFT: ${{ inputs.draft }}
+        run: |
+          set -euo pipefail
+
+          fail() {
+            printf '::error::%s\n' "$1" >&2
+            exit 1
+          }
+
+          [[ "$GITHUB_REF" == refs/heads/main ]] || fail "Run this workflow from main."
+          [[ "$VERSION" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)*)?$ ]] ||
+            fail "Use a version tag like v1.1.0 or v1.1.0-rc.1."
+          [[ "$BUILD_RUN_ID" =~ ^[1-9][0-9]*$ ]] || fail "Enter the numeric run ID from the Windows build URL."
+
+          repository="repos/$GITHUB_REPOSITORY"
+          check_version_tag() {
+            local expected_commit=${1:-} existing_commit
+            existing_commit=$(gh api "$repository/git/matching-refs/tags/$VERSION" |
+              jq -r --arg ref "refs/tags/$VERSION" '.[] | select(.ref == $ref) | .object.sha')
+            [[ -z "$existing_commit" || "$existing_commit" == "$expected_commit" ]] ||
+              fail "Tag $VERSION already exists at $existing_commit."
+          }
+
+          check_version_tag
+          existing_release=$(gh api --paginate "$repository/releases?per_page=100" |
+            jq -sr --arg version "$VERSION" '[.[][] | select(.tag_name == $version)][0].id // empty')
+          [[ -z "$existing_release" ]] || fail "A release or draft for $VERSION already exists. Review it under Releases."
+
+          run=$(gh api "$repository/actions/runs/$BUILD_RUN_ID")
+          commit=$(jq -er --arg repo "$GITHUB_REPOSITORY" '
+            select(.path == ".github/workflows/windows.yml" and .head_branch == "main"
+              and .head_repository.full_name == $repo and .event == "push"
+              and .status == "completed" and .conclusion == "success")
+            | .head_sha | select(test("^[0-9a-f]{40}$"))
+          ' <<< "$run") || fail "Choose a successful Windows build triggered by a push to main."
+
+          asset_name="DawnPro-GUI-Win-x64-${commit:0:7}.zip"
+          artifact=$(gh api "$repository/actions/runs/$BUILD_RUN_ID/artifacts?name=$asset_name" |
+            jq -ce --arg name "$asset_name" '
+              [.artifacts[] | select(.name == $name and .expired == false)]
+              | select(length == 1) | .[0]
+              | select(.digest | type == "string" and test("^sha256:[0-9a-f]{64}$"))
+            ') || fail "The selected build needs one available Windows ZIP with a SHA-256 digest."
+          artifact_id=$(jq -er '.id' <<< "$artifact")
+          digest=$(jq -er '.digest' <<< "$artifact")
+          checksum=${digest#sha256:}
+
+          cd "$(mktemp -d "$RUNNER_TEMP/dawnpro-release.XXXXXXXX")"
+          gh api "$repository/actions/artifacts/$artifact_id/zip" > "$asset_name"
+          printf '%s  %s\n' "$checksum" "$asset_name" | sha256sum --check --strict
+          unzip -tq "$asset_name"
+
+          if [[ -n "$RELEASE_NOTES" ]]; then
+            printf '%s\n' "$RELEASE_NOTES" > notes.md
+          else
+            gh api --method POST "$repository/releases/generate-notes" \
+              -f tag_name="$VERSION" -f target_commitish="$commit" --jq .body > notes.md
+          fi
+          printf '\n## SHA-256\n\n`%s`\n\n```text\n%s\n```\n' "$asset_name" "$checksum" >> notes.md
+
+          # Verify the uploaded asset while the release is still a draft.
+          release=$(jq -n --arg version "$VERSION" --arg target "$commit" --argjson prerelease "$PRERELEASE" \
+            --rawfile body notes.md '{
+              tag_name: $version, target_commitish: $target, name: ("DawnPro-GUI-Win " + $version),
+              body: $body, draft: true, prerelease: $prerelease
+            }' | gh api --method POST "$repository/releases" --input -)
+          release_id=$(jq -er --arg version "$VERSION" --arg commit "$commit" --argjson prerelease "$PRERELEASE" '
+            select(.tag_name == $version and .target_commitish == $commit and .draft and .prerelease == $prerelease)
+            | .id
+          ' <<< "$release")
+          draft_url=$(jq -er '.html_url' <<< "$release")
+          printf 'Release draft: %s\n' "$draft_url"
+
+          upload_url=$(jq -er '.upload_url | split("{")[0]' <<< "$release")
+          [[ "$upload_url" == "https://uploads.github.com/$repository/releases/$release_id/assets" ]] ||
+            fail "GitHub returned an unexpected release asset upload URL."
+          uploaded=$(gh api --method POST "$upload_url?name=$asset_name" \
+            -H "Content-Type: application/zip" --input "$asset_name")
+          jq -e --arg name "$asset_name" --arg digest "$digest" '
+            .name == $name and .state == "uploaded" and .digest == $digest
+          ' <<< "$uploaded" >/dev/null || fail "The release asset did not match the build artifact. Review the draft."
+
+          if [[ "$DRAFT" == true ]]; then
+            release_url=$draft_url
+          else
+            check_version_tag "$commit"
+            release_url=$(gh api --method PATCH "$repository/releases/$release_id" -F draft=false --jq .html_url)
+          fi
+
+          printf '[Open %s](%s)\n\n[Windows build](%s/actions/runs/%s) for commit `%s`.\n\nSHA-256 `%s`.\n' \
+            "$VERSION" "$release_url" "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" "$BUILD_RUN_ID" "$commit" "$checksum" \
+            >> "$GITHUB_STEP_SUMMARY"
