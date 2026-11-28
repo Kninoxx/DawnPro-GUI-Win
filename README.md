@@ -31,7 +31,23 @@ The automated tests use fake HID reports.
 
 Download `DawnPro-GUI-Win-x64-<commit>.zip` from the **Artifacts** section of a successful Windows build. Extract it and run `DawnPro.Windows.exe`. The ZIP includes the .NET runtime and its license notices. [Windows builds on GitHub Actions](https://github.com/Kninoxx/DawnPro-GUI-Win/actions/workflows/windows.yml)
 
-For a GitHub release, use the ZIP from the successful `main` run for the commit you plan to tag. Test that download on Windows with your Dawn Pro, then attach the same ZIP to the draft release.
+## Publish a GitHub release
+
+1. Test the ZIP from a successful Windows build on `main`. Copy the numeric run ID at the end of that run's GitHub URL.
+2. Open **Actions → Publish Windows release → Run workflow** from `main`. Enter the new version tag and the build run ID. Add release notes or leave them blank to generate notes from the changes.
+3. Select **prerelease** for a pre-release or **draft** to save it for review. The default publishes the release.
+
+The workflow uses the commit and ZIP from the selected build, verifies the ZIP's SHA-256 before and after uploading it, and includes the checksum in the release notes. If a failed run leaves a draft, review it under **Releases**. The workflow refuses to overwrite an existing release or draft. [Release workflow](https://github.com/Kninoxx/DawnPro-GUI-Win/actions/workflows/release.yml)
+
+You can pass multiline release notes from a file using the GitHub CLI.
+
+```sh
+jq -n --rawfile notes release-notes.md '{
+  version: "v1.1.0", build_run_id: "123456789", release_notes: $notes,
+  prerelease: false, draft: true
+}' | gh workflow run release.yml --ref main --json
+```
+
 
 ## Publish a portable executable locally
 
